@@ -1235,27 +1235,6 @@ The practical target for an intern submitting a PR is: **get to the point where 
 ![Translation Status](https://hosted.weblate.org/widget/wger/svg-badge.svg)
 </p>
 
-
-wger (ˈvɛɡɐ) is a free workout and fitness manager.
-
-- 🏋️ **Custom Workout Routines** – Create flexible routines with automatic weight progression rules.
-- 📊 **Comprehensive Tracking** – Track diet plans, body weight, and custom measurements.
-- 🍽️ **Nutrition Management** – Log your calories with a food database
-  from [Open Food Facts](https://openfoodfacts.org).
-- 📸 **Progress Gallery** – Upload and track your fitness progress with photos.
-- 📚 **Exercise Wiki** – Access and contribute to the built-in exercises.
-- 📱 **Cross-Platform Apps** – Available on
-  [Android](https://play.google.com/store/apps/details?id=de.wger.flutter),
-  [iOS](https://apps.apple.com/us/app/wger-workout-manager/id6502226792),
-  [F-Droid](https://f-droid.org/en/packages/de.wger.flutter/),
-  and [Flathub](https://flathub.org/apps/de.wger.flutter).
-- 🐳 **Self-Hostable** – Deploy easily with Docker for full control.
-- 🌍 **Multilingual Support** – Translated by the community via Weblate.
-- 🔗 **Powerful API** – REST API for third-party integrations or automations.
-- 👥 **Multi-User Support** – Includes basic gym management features.
-- 🆓 **100% Free & Open Source** – Licensed under AGPL-3.0 or later.
-
-
 For a live system, visit: <https://wger.de>
 
 <p align="center" style="line-height:0; margin:0; padding:0;">
