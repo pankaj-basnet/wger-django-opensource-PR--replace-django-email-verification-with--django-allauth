@@ -991,3 +991,406 @@ When you need to assign a variable based on a condition, writing a full `if/elif
 This script is a prime example of production-grade Python. It does not blindly trust inputs. It sanitizes strings using chained methods, handles data transformations using safe dictionary lookups (`.get()`), leverages truthiness for fast state evaluations, utilizes tuple unpacking for clean returns, and employs list comprehensions for high-performance data extraction. The integration of modern type hints ensures that this function acts as a reliable, heavily armored data pipeline.
 
 ---
+
+
+
+
+---
+
+# Architectural Deep Dive: 10 Advanced Python & Regex Engineering Snippets
+
+The following engineering brief expands our architectural review by isolating, dissecting, and stress-testing the 10 most complex, high-risk code blocks found within this text-processing engine.
+
+As a senior developer or systems architect, you must look past simple syntax to analyze structural edge cases, runtime efficiency, compiler optimization, memory layouts, and algorithmic failure modes (such as catastrophic backtracking). Each snippet below is decomposed into its raw execution engine, defensive bounds, and production characteristics.
+
+---
+
+## 1. The Double-Nested List Comprehension with Dual Regex Invocations
+
+```python
+parenthesis_matches = [
+    _mass_match_to_gram(match)
+    for content in re.findall(r'\(([^\)]*)\)', serving_size)
+    for match in MASS_PATTERN.finditer(content)
+]
+
+```
+
+### Deep-Dive Analysis
+
+This snippet is the algorithmic focal point of the extraction module. It utilizes a flattened, nested list comprehension that bridges two distinct regular expression paradigms to parse isolated substrings.
+
+The execution begins with the outer loop expression: `re.findall(r'\(([^\)]*)\)', serving_size)`. The regex engine compiles this pattern to detect literal pairs of matching parentheses. The outer parentheses `\(` and `\)` isolate the search area, while the inner unescaped parentheses `([^\)]*)` form a capture group. Because a capture group is explicitly declared, `re.findall` discards the surrounding literal parentheses and yields an array of raw inner text blocks. For an input string like `"Size: 1 bar (50g) (Pack of 2)"`, `re.findall` yields `['50g', 'Pack of 2']`.
+
+The inner loop expression grabs this array and sets up a secondary execution stream: `for match in MASS_PATTERN.finditer(content)`. Instead of flattening the string or performing manual substring slicing, `finditer` maps across each isolated text block. Unlike `findall`, which extracts raw strings, `finditer` returns a memory-efficient iterator that yields discrete `re.Match` state objects. This is mandatory because the tracking transformer `_mass_match_to_gram` requires access to the complete match context, including named groups and positional pointers.
+
+### Execution Trace & Edge Cases
+
+Consider the input string `"Serving Size: 1 bar (Contains: 50g fat, 20g sugar) (100g total)"`.
+
+1. **Outer Parse:** `re.findall` extracts `['Contains: 50g fat, 20g sugar', '100g total']`.
+2. **Inner Parse (Iteration 1):** `finditer` runs on `'Contains: 50g fat, 20g sugar'`. It discovers two distinct matches using `MASS_PATTERN`: first `"50g"`, then `"20g"`. Both match states are passed sequentially into `_mass_match_to_gram`.
+3. **Inner Parse (Iteration 2):** `finditer` runs on `'100g total'`, matching `"100g"`.
+
+This design separates unrelated numeric streams. If the input string contains `"200 calories (per 50g serving)"`, the outer match limits tracking strictly to the text inside the parentheses. This ensures that the global number `200` is never evaluated as a weight, preventing a common false-positive error in text processing.
+
+---
+
+## 2. The Anchored Alphanumeric Match with Negated Structural Sets
+
+```python
+AMOUNT_AND_UNIT_PATTERN = re.compile(
+    r'^\s*(?P<amount>\d+(?:[\.,]\d+)?)\s*(?P<unit>[^\d\(\),;\|][^\(\),;\|]*)$'
+)
+
+```
+
+### Deep-Dive Analysis
+
+This pre-compiled schema establishes a strict structural contract for what constitutes a valid "Amount + Unit" string. It enforces a structural blueprint across the entire line using the start-of-line anchor `^` and end-of-line anchor `$`. This prevents partial structural matches, meaning the string must conform to the target layout from end to end.
+
+```
+^ ---> \s* ---> (?P<amount>...) ---> \s* ---> (?P<unit>...) ---> $
+
+```
+
+The numeric component `(?P<amount>\d+(?:[\.,]\d+)?)` uses a named capture group to store an integer or decimal value. The token `\d+` matches the integer base. The non-capturing group `(?:[\.,]\d+)?` handles optional fractional components, matching either an international comma or a standard decimal period followed by additional trailing digits.
+
+The architectural complexity lies in the unit parser: `(?P<unit>[^\d\(\),;\|][^\(\),;\|]*)`. This sub-pattern prevents dirty or multi-token strings from corrupting the unit field. The first character is validated by `[^\d\(\),;\|]`. The leading `^` inside this bracket acts as a negation operator, declaring that the unit's first character *cannot* be a digit, an open or close parenthesis, a comma, a semicolon, or a pipe character. This prevents the parser from capturing invalid strings like `"2 50g"` or `"1 (slice)"`.
+
+The remaining characters of the unit string are managed by `[^\(\),;\|]*`. This allows any sequence of characters to follow, provided they do not contain structurally hazardous delimiters like parentheses or commas.
+
+### Execution Trace & Edge Cases
+
+If passed a corrupted token like `"3  slices, pack of 2"`, the evaluation unfolds as follows:
+
+1. `^` aligns with index 0.
+2. `(?P<amount>...)` matches `"3"`.
+3. The separating whitespace `\s*` consumes the trailing spaces.
+4. The unit group evaluates the remainder: `"slices, pack of 2"`.
+5. The first character `'s'` passes the verification step `[^\d\(\),;\|]`.
+6. The engine matches `"lices"`, but halts abruptly when it encounters the literal comma `,`.
+7. Because the pattern requires a trailing anchor `$`, but the engine hit an un-matched comma delimiter before the end of the string, the match fails immediately and returns `None`.
+
+This structural wall protects downstream code from storing multi-phrase garbage inside the unit column.
+
+---
+
+## 3. Safe Dictionary Key Lookups and Memory Identity Verification
+
+```python
+factor = {'kg': 1000, 'g': 1, 'mg': 0.001}.get(unit)
+if factor is None:
+    return None
+
+```
+
+### Deep-Dive Analysis
+
+This snippet provides a safe, highly optimized pathway for structural type conversion. At runtime, Python instantiates an inline hash map where the keys are string references and the values are their mathematical modifiers relative to a baseline of 1 gram.
+
+The design relies on the explicit invocation of `.get(unit)`. In a standard map access expression like `factor = mapping[unit]`, a missing key triggers a fatal `KeyError` exception. In high-throughput data processing, throwing and catching exceptions creates significant overhead because the engine has to construct a complete stack trace frame. The `.get()` function avoids this by resolving to Python's singleton `None` object whenever a lookup fails.
+
+The conditional assessment `if factor is None:` uses the memory identity operator `is` instead of the equality operator `==`.
+
+```
+[User Input String] ---> .lower() ---> 'mg' ---> [Hash Map Lookup] ---> 0.001
+[User Input String] ---> .lower() ---> 'oz' ---> [Hash Map Lookup] ---> None (Triggers identity short-circuit)
+
+```
+
+The `is` keyword compares the actual memory addresses of two pointer references at the C level (`pointer_a == pointer_b`). Because `None` is guaranteed to be a unique, immutable global singleton in the Python runtime, checking identity against it is a single-cycle CPU operation. Conversely, using `==` forces the interpreter to check the object's internal `__eq__` methods, which adds unnecessary execution overhead.
+
+### Execution Trace & Edge Cases
+
+This lookup acts as a structural validation filter. If the regex system matches an unmapped unit abbreviation like `"mg"` or a malformed string like `"g"`, the lower-case normalizer handles case variations while this lookup acts as the ultimate gatekeeper.
+
+If a user inputs an unsupported unit type like `"oz"`, the regular expression might still capture it if the boundary assertions match. However, when passed to this mapping block, `.get('oz')` safely returns `None`. The identity block intercepts this result and exits the function early, blocking downstream execution before any math errors can occur.
+
+---
+
+## 4. The Micro-Cleansing Pipeline via Substring Deletion
+
+```python
+no_parentheses = re.sub(r'\([^\)]*\)', '', serving_size)
+no_mass = MASS_PATTERN.sub('', no_parentheses)
+candidate = re.sub(r'\s+', ' ', no_mass).strip(' ,;-/').strip()
+
+```
+
+### Deep-Dive Analysis
+
+This snippet defines a three-stage string-cleansing pipeline designed to isolate core product descriptors by removing complex peripheral modifiers.
+
+```
+"100 ml (90g) / chocolate" 
+   |---> Stage 1: Strips Parentheses -> "100 ml  / chocolate"
+   |---> Stage 2: Strips Mass Units  -> "100 ml  / chocolate"
+   |---> Stage 3: Normalizes Spacing -> "100 ml / chocolate" -> Strip -> "100 ml / chocolate"
+
+```
+
+The first stage uses `re.sub(r'\([^\)]*\)', '', serving_size)`. This matches an opening parenthesis `\(`, followed by a negated set `[^\)]*` that matches any character that is *not* a closing parenthesis, closed out by a literal closing parenthesis `\)`. By targeting this specific set, the pattern avoids the risks of using a lazy dot-match expression like `\(.*?\)`.
+
+The lazy dot match can suffer from catastrophic tracking failures if an input string contains an unclosed parenthesis, as it will search across the entire remainder of the line. The negated character class approach used here avoids this by stopping immediately at the next parenthesis boundary.
+
+The second line calls `.sub('', no_parentheses)` directly on the pre-compiled `MASS_PATTERN`. This removes standalone weight identifiers (e.g., `"50g"`) that were not wrapped inside parentheses.
+
+The third stage handles structural spacing normalization. The pattern `r'\s+'` captures any erratic multi-space blocks or tab layouts and collapses them down into a single space character `' '`. Finally, the code chains two distinct string cleanup operations: `.strip(' ,;-/')` clears out any dangling structural formatting characters left behind by the deletions, and a final trailing `.strip()` eliminates any remaining whitespace at the edges of the string.
+
+### Execution Trace & Edge Cases
+
+Let’s trace a messy input string: `" 2 slices (30g) ;  "`
+
+1. `re.sub(r'\([^\)]*\)', ...)` identifies `"(30g)"` and removes it, producing `" 2 slices  ;  "`.
+2. `MASS_PATTERN.sub` scans for standalone mass labels. Finding none, it preserves the string.
+3. `re.sub(r'\s+', ...)` detects the double space gap between the unit and the semicolon, collapsing it to `" 2 slices ; "`.
+4. The multi-character strip `.strip(' ,;-/')` trims the trailing semicolon and spaces, returning a clean target value: `"2 slices"`.
+
+---
+
+## 5. Bounded Structural Floating-Point Quantization and Integer Casting
+
+```python
+gram_value = mass * factor
+if gram_value <= 0:
+    return None
+
+return int(round(gram_value))
+
+```
+
+### Deep-Dive Analysis
+
+This snippet converts floating-point weights into normalized, integer-based gram values while mitigating precision errors inherent in computer arithmetic.
+
+Floating-point operations inside modern computing systems conform to the IEEE 754 binary standard. Because base-10 decimals cannot always be represented exactly in base-2 binary fractions, fractional multiplications can introduce minor tracking errors. For example, a calculation that should theoretically equal exactly `30.0` might evaluate in the runtime engine to `30.000000000000004` or `29.999999999999996`.
+
+To counter this, the script applies an explicit two-stage quantization step: `int(round(gram_value))`. The `round()` built-in handles the core decimal correction. It defaults to round-to-nearest-even behavior (also known as Banker's Rounding) for midpoint values, which minimizes cumulative rounding bias across large datasets.
+
+Once the float value has been correctly rounded to its nearest whole representation (e.g., `30.0`), the `int()` constructor strips away the floating-point type wrapper entirely, transforming the value into a clean integer primitive (`30`).
+
+### Execution Trace & Edge Cases
+
+This dual-step approach handles problematic micro-values safely. If a user enters a tiny serving size like `"0.2 mg"`, the multiplier calculates:
+
+$$\text{gram\_value} = 0.2 \times 0.001 = 0.0002$$
+
+The boundary filter `if gram_value <= 0:` ensures the value is structurally greater than zero. Then, the quantization logic executes:
+
+1. `round(0.0002)` evaluates down to `0.0`.
+2. `int(0.0)` converts this to the integer primitive `0`.
+
+While a return value of `0` might appear problematic at first glance, it represents a conscious architectural decision: the system enforces integer-scale tracking for grams, classifying sub-milligram measurements as below the measurable threshold for macro-nutrient evaluations.
+
+---
+
+## 6. The Multi-Tiered Ternary Fallback and Conditional State Resolver
+
+```python
+gram = (
+    parenthesis_matches[0] if parenthesis_matches else (all_matches[0] if all_matches else None)
+)
+
+```
+
+### Deep-Dive Analysis
+
+This line implements a prioritized fall-through decision tree using a nested ternary expression. It controls how the system resolves conflicting weight metrics extracted from a single input string.
+
+The syntax follows Python's conditional evaluation pattern: `X if Condition else Y`. The engine processes this string logic from left to right using a short-circuit evaluation strategy.
+
+```
+[ parenthese_matches populated? ]
+      |-- YES --> Take index [0] and terminate assignment
+      |-- NO  --> [ all_matches populated? ]
+                        |-- YES --> Take index [0] and terminate assignment
+                        |-- NO  --> Return None
+
+```
+
+The system first inspects `if parenthesis_matches`. In Python, an array's truth value is tied directly to its element count; an empty list `[]` evaluates to `False`, while a list containing one or more elements evaluates to `True`. If this first collection is populated, the expression short-circuits immediately. The engine reads index `[0]`, assigns that value to `gram`, and skips the remaining branches entirely.
+
+If `parenthesis_matches` is empty, execution shifts to the fallback branch inside the parenthetical block: `(all_matches[0] if all_matches else None)`. Here, the system checks the secondary array `all_matches`. If data exists, it takes the first element; otherwise, it defaults to `None`.
+
+### Execution Trace & Edge Cases
+
+Consider a multi-unit input string like `"200 ml (206 g)"`.
+
+1. The primary parsing pipeline populates `parenthesis_matches` with `[206]`.
+2. The secondary pipeline scans the entire string and populates `all_matches` with `[206]`.
+3. The ternary engine evaluates the first condition. Because `parenthesis_matches` contains an item, it extracts index `[0]` (`206`) and ignores the alternative fallback pathways.
+
+Now consider a string with an inverted layout: `"50g (Sugar Free)"`.
+
+1. The parenthesis scanner finds no weights inside the parenthetical block, leaving `parenthesis_matches` as an empty list `[]`.
+2. The global scanner successfully matches the standalone weight, populating `all_matches` with `[50]`.
+3. The ternary operator checks the first condition, evaluates it as `False`, and moves to the inner fallback expression.
+4. Since `all_matches` is populated, it extracts index `[0]` (`50`), saving the calculation.
+
+---
+
+## 7. The Localized Float Parsing Engine and Safe String Normalizer
+
+```python
+mass = float(match.group('mass').replace(',', '.'))
+
+```
+
+### Deep-Dive Analysis
+
+This snippet provides localized text parsing at the data extraction level. It isolates a numeric text string captured by a regular expression and converts it into a machine-readable float primitive.
+
+The expression `match.group('mass')` retrieves the raw substring captured by the named regex group `(?P<mass>...)`. In multicultural environments, decimal formatting varies significantly. Standard English systems use a period to denote a decimal split (e.g., `"1.5"`), whereas many European variants use a comma (`"1,5"`).
+
+Python's core string-to-float compilation engine (`float()`) is written in C and hardcoded to parse periods as the sole decimal indicator. Passing a string with a comma separator directly to `float()` causes the parser to fail and throw a `ValueError`.
+
+To prevent this crash, the script introduces a preprocessing step: `.replace(',', '.')`. This swaps out any European comma delimiters for standard decimal periods. If the string already uses a standard period, the `.replace()` method leaves it unchanged, ensuring uniform formatting before the float constructor runs.
+
+### Execution Trace & Edge Cases
+
+Let’s look at how the engine processes a European input string like `"1,5 kg"`:
+
+1. The regex matches successfully, and `match.group('mass')` returns the string `"1,5"`.
+2. The `.replace(',', '.')` operation scans the string, replacing the comma to produce `"1.5"`.
+3. The modified string is passed to the float constructor: `float("1.5")`.
+4. The constructor maps the string to an IEEE 754 double-precision floating-point number, successfully returning `1.5`.
+
+If the input is an integer like `"2"`, `.replace()` does nothing, and `float("2")` safely returns `2.0`. This simple normalizer allows the pipeline to handle international product data smoothly without requiring separate regional parsing logic.
+
+---
+
+## 8. Word Boundary Constraints and Context-Insensitive Flags
+
+```python
+MASS_PATTERN = re.compile(r'(?P<mass>\d+(?:[\.,]\d+)?)\s*(?P<unit>kg|g|mg)\b', re.IGNORECASE)
+
+```
+
+### Deep-Dive Analysis
+
+This snippet builds a high-performance regex matching object configured to ignore text casing while enforcing strict word boundaries on mass units.
+
+The token `\b` represents a zero-width word boundary assertion. It does not match a physical character; instead, it validates a structural position in the text. Specifically, it asserts that the current position lies between a word character (`\w`) and a non-word character (`\W`) or the edge of the string.
+
+```
+"Serving: 50g"  ---> [g] is \w, [End of String] is Boundary -> MATCH
+"Serving: 50gg" ---> [g] is \w, [g] is \w -> NO BOUNDARY -> FAIL
+
+```
+
+In this pattern, the boundary assertion is placed immediately after the unit options: `(kg|g|mg)\b`. This prevents partial matching errors on longer words that happen to start with or contain these unit abbreviations.
+
+The compilation flag `re.IGNORECASE` modifies how the engine processes text characters at the byte level. It forces the state machine to evaluate lowercase and uppercase characters identically, matching variations like `"50G"`, `"50g"`, or `"50Mg"`.
+
+### Execution Trace & Edge Cases
+
+To see the value of the `\b` boundary assertion, consider an input string like `"Serving size: 50 giga-bites"`.
+
+1. The numeric pattern matches `"50"`.
+2. The whitespace token `\s*` matches the space character.
+3. The unit selector looks at `"giga-bites"`. The first character `'g'` matches the `'g'` option in `(kg|g|mg)`.
+4. The engine then checks the boundary condition `\b` immediately after that first `'g'`.
+5. It inspects the next character in the string, which is the letter `'i'`.
+6. Since both `'g'` and `'i'` are standard word characters (`\w`), the boundary condition fails. The engine rejects the match and continues scanning, preventing a false positive.
+
+---
+
+## 9. Defensive Boolean Normalization and Default Value Assignments
+
+```python
+if amount <= 0:
+    amount = 1.0
+
+if not unit:
+    unit = 'Serving'
+
+```
+
+### Deep-Dive Analysis
+
+This block implements defensive fallback logic to sanitize data variables after the parsing phase completes. It ensures that the function always returns valid, usable defaults even when processing incomplete or corrupted inputs.
+
+The first conditional block `if amount <= 0:` handles logical errors in the serving quantity. A serving size cannot have a zero or negative volume. If the regular expression runs against an invalid text snippet like `"0 slices"`, the parser will extract `0.0` as a valid float. Leaving this value uncorrected could cause severe runtime errors downstream, such as division-by-zero exceptions during macro-nutrient calculations. The code intercepts these values and resets the quantity to a standard baseline of `1.0`.
+
+The second conditional block `if not unit:` checks the validity of the unit string using Python's implicit truthiness evaluation framework.
+
+```
+unit = ""        ---> if not unit ---> Evaluates to True  ---> Reset to 'Serving'
+unit = "Slices"  ---> if not unit ---> Evaluates to False ---> Retain "Slices"
+
+```
+
+If the parsing pipeline encounters an input string that lacks a clear unit type, the `unit` variable can fall through as an empty string `""`. In a boolean context, an empty string evaluates to `False`. The statement `if not unit:` catches this condition, overrides the empty string, and applies a fallback value of `'Serving'`.
+
+### Execution Trace & Edge Cases
+
+Consider a highly malformed input string like `"0"`.
+
+1. The parsing pipeline runs, and the regex engine extracts the value `0.0` for the amount while leaving the unit field as an empty string `""`.
+2. The first safety check triggers: `if 0.0 <= 0:`. The condition evaluates to `True`, resetting the `amount` variable to `1.0`.
+3. The second safety check triggers: `if not "":`. This also evaluates to `True`, updating the empty `unit` variable to `'Serving'`.
+4. Thanks to these fallbacks, the function avoids returning corrupted data and outputs a safe, standardized default tuple: `(None, 'Serving', 1.0)`.
+
+---
+
+## 10. Multi-Variable Tuple Unpacking and Array Filtering
+
+```python
+parenthesis_matches = [value for value in parenthesis_matches if value is not None]
+
+```
+
+### Deep-Dive Analysis
+
+This list comprehension filters an array in place, removing invalid states to ensure data cleanliness before final calculations run.
+
+The array processing engine scans the existing `parenthesis_matches` collection using a linear loop format: `for value in parenthesis_matches`. At each step, it applies a conditional filter: `if value is not None`.
+
+```
+Initial Array:   [ 50,  None,  100,  None ]
+                   |      |     |      |
+                   v      v     v      v
+Filter Check:     Keep?  Drop  Keep?  Drop
+                   |            |
+Final Array:     [ 50,         100 ]
+
+```
+
+As established during our look at the conversion helper `_mass_match_to_gram`, any parsing error or unmapped unit shortcut causes the converter to return `None`. Without an explicit filtering step, the resulting array could contain a mix of valid integers and empty `None` references (e.g., `[50, None, 100]`).
+
+Attempting to read or process an array containing mixed types can cause sudden runtime failures. For example, trying to sort or index into an un-filtered collection could expose the codebase to sudden errors if downstream components expect pure numeric inputs. This inline list filter strips out those dead references, packing the remaining values into a clean, contiguous array of integers.
+
+### Execution Trace & Edge Cases
+
+Let’s track how this filter processes a mixed-type input collection: `[30, None, 45]`.
+
+1. The loop starts and reads index 0, encountering the integer primitive `30`.
+2. It evaluates the filter condition: `30 is not None`. This returns `True`, so `30` is retained.
+3. It moves to index 1, which contains a `None` reference.
+4. The condition evaluates: `None is not None`. This returns `False`, so the reference is discarded.
+5. It moves to index 2 and processes the integer `45`. The condition returns `True`, retaining the value.
+6. The operation completes, returning a clean, predictably typed array: `[30, 45]`.
+
+This filtering step bridges the gap between flexible text parsing and strict, predictable data outputs.
+
+---
+
+## Technical Summary of Architectural Metrics
+
+| Feature / Metric | Implementation Vector | Primary Failure Mode | Mitigation Strategy |
+| --- | --- | --- | --- |
+| **Regex Pre-Compilation** | `re.compile()` at module level | Re-compilation overhead inside loops | Instantiated exactly once at module load time |
+| **Decimal Localization** | `.replace(',', '.')` before casting | `ValueError` crashes on European formats | Standardize delimiters to periods prior to execution |
+| **Floating-Point Errors** | `int(round(val))` | Truncation gaps and binary drift | Apply round-to-nearest-even before integer casting |
+| **Unmapped Unit Safety** | `.get()` dict lookups with `is None` checks | `KeyError` crashes on invalid inputs | Safe dictionary lookups that default to `None` singletons |
+| **Database Protection** | String slicing via `unit[:200]` | Target buffer overflows on dirty strings | Enforce strict length caps at the return boundary |
+
+Using this layered defensive structure, the parser functions as an armored data pipeline. It isolates, sanitizes, and normalizes unstructured data inputs, protecting downstream databases and calculation engines from malformed text variations.
+
+---
+
+
+
+
+---
